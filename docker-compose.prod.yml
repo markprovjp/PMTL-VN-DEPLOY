@@ -20,46 +20,74 @@ services:
       - pmtl-network
 
   backend:
-    build: ./BE_PMTL
+    build:
+      context: ./BE_PMTL
+      dockerfile: Dockerfile
     container_name: pmtl-backend
     restart: always
     depends_on:
-      postgres: { condition: service_healthy }
+      postgres:
+        condition: service_healthy
+      meilisearch:
+        condition: service_started
     environment:
       NODE_ENV: production
       NODE_OPTIONS: --max-old-space-size=1536
+      HOST: 0.0.0.0
+      PORT: 1337
       DATABASE_CLIENT: postgres
       DATABASE_HOST: postgres
+      DATABASE_PORT: 5432
       DATABASE_NAME: ${DATABASE_NAME}
       DATABASE_USERNAME: ${DATABASE_USERNAME}
       DATABASE_PASSWORD: ${DATABASE_PASSWORD}
+      DATABASE_SSL: ${DATABASE_SSL:-false}
       APP_KEYS: ${APP_KEYS}
       API_TOKEN_SALT: ${API_TOKEN_SALT}
       ADMIN_JWT_SECRET: ${ADMIN_JWT_SECRET}
       JWT_SECRET: ${JWT_SECRET}
       TRANSFER_TOKEN_SALT: ${TRANSFER_TOKEN_SALT}
-      # Optional: enable Meilisearch integration when running the meilisearch profile
-      MEILISEARCH_ENABLED: ${MEILISEARCH_ENABLED:-false}
-      MEILISEARCH_HOST: ${MEILISEARCH_HOST:-http://meilisearch:7700}
-      MEILISEARCH_API_KEY: ${MEILISEARCH_API_KEY:-}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      FRONTEND_URL: ${NEXT_PUBLIC_SITE_URL}
+      MEILISEARCH_ENABLED: "true"
+      MEILISEARCH_HOST: http://meilisearch:7700
+      MEILISEARCH_API_KEY: ${MEILISEARCH_MASTER_KEY}
     ports: ["127.0.0.1:1337:1337"]
     volumes: ["./BE_PMTL/public/uploads:/app/public/uploads"]
     mem_limit: 1536m
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:1337/admin"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
     networks: [pmtl-network]
 
   frontend:
-    build: ./fe-pmtl
+    build:
+      context: ./fe-pmtl
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+        NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL}
     container_name: pmtl-frontend
     restart: always
-    depends_on: [backend]
+    depends_on:
+      backend:
+        condition: service_healthy
     environment:
       NODE_ENV: production
       NODE_OPTIONS: --max-old-space-size=768
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
       NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL}
-      NEXT_PHASE: phase-production-build
     ports: ["127.0.0.1:3000:3000"]
     mem_limit: 768m
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
     networks: [pmtl-network]
 
   nginx:
@@ -74,18 +102,20 @@ services:
       - ./certbot/www:/var/www/certbot:ro
     networks: [pmtl-network]
     mem_limit: 128m
+    depends_on:
+      frontend:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
 
-  # Optional local search (recommended on 4GB+ VPS).
-  # Start with: docker compose -f docker-compose.prod.yml --profile search up -d
   meilisearch:
-    profiles: ["search"]
     image: getmeili/meilisearch:v1.12
     container_name: pmtl-meilisearch
     restart: always
     environment:
       MEILI_ENV: production
       MEILI_NO_ANALYTICS: "true"
-      MEILI_MASTER_KEY: ${MEILISEARCH_MASTER_KEY:-change_me}
+      MEILI_MASTER_KEY: ${MEILISEARCH_MASTER_KEY}
     volumes:
       - meilisearch_data:/meili_data
     ports:
@@ -93,6 +123,11 @@ services:
     networks:
       - pmtl-network
     mem_limit: 1024m
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:7700/health"]
+      interval: 20s
+      timeout: 5s
+      retries: 10
 
 volumes:
   postgres_data: {}

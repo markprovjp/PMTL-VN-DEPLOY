@@ -1,5 +1,6 @@
 .env
 .env.*
+!.env.example
 certbot/conf/**
 !certbot/conf/.gitkeep
 certbot/www/**
