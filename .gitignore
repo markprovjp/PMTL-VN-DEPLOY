@@ -1,0 +1,8 @@
+.env
+.env.*
+certbot/conf/**
+!certbot/conf/.gitkeep
+certbot/www/**
+!certbot/www/.gitkeep
+BE_PMTL/
+fe-pmtl/
