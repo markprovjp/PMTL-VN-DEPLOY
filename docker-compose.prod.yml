@@ -11,6 +11,11 @@ services:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DATABASE_USERNAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    shm_size: 256m
+    mem_limit: 768m
     networks:
       - pmtl-network
 
@@ -22,7 +27,7 @@ services:
       postgres: { condition: service_healthy }
     environment:
       NODE_ENV: production
-      NODE_OPTIONS: --max-old-space-size=384
+      NODE_OPTIONS: --max-old-space-size=1536
       DATABASE_CLIENT: postgres
       DATABASE_HOST: postgres
       DATABASE_NAME: ${DATABASE_NAME}
@@ -33,8 +38,13 @@ services:
       ADMIN_JWT_SECRET: ${ADMIN_JWT_SECRET}
       JWT_SECRET: ${JWT_SECRET}
       TRANSFER_TOKEN_SALT: ${TRANSFER_TOKEN_SALT}
-    ports: ["1337:1337"]
+      # Optional: enable Meilisearch integration when running the meilisearch profile
+      MEILISEARCH_ENABLED: ${MEILISEARCH_ENABLED:-false}
+      MEILISEARCH_HOST: ${MEILISEARCH_HOST:-http://meilisearch:7700}
+      MEILISEARCH_API_KEY: ${MEILISEARCH_API_KEY:-}
+    ports: ["127.0.0.1:1337:1337"]
     volumes: ["./BE_PMTL/public/uploads:/app/public/uploads"]
+    mem_limit: 1536m
     networks: [pmtl-network]
 
   frontend:
@@ -44,11 +54,12 @@ services:
     depends_on: [backend]
     environment:
       NODE_ENV: production
-      NODE_OPTIONS: --max-old-space-size=256
+      NODE_OPTIONS: --max-old-space-size=768
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
       NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL}
       NEXT_PHASE: phase-production-build
-    ports: ["3000:3000"]
+    ports: ["127.0.0.1:3000:3000"]
+    mem_limit: 768m
     networks: [pmtl-network]
 
   nginx:
@@ -62,6 +73,28 @@ services:
       - ./certbot/conf:/etc/letsencrypt:ro
       - ./certbot/www:/var/www/certbot:ro
     networks: [pmtl-network]
+    mem_limit: 128m
 
-volumes: { postgres_data: }
+  # Optional local search (recommended on 4GB+ VPS).
+  # Start with: docker compose -f docker-compose.prod.yml --profile search up -d
+  meilisearch:
+    profiles: ["search"]
+    image: getmeili/meilisearch:v1.12
+    container_name: pmtl-meilisearch
+    restart: always
+    environment:
+      MEILI_ENV: production
+      MEILI_NO_ANALYTICS: "true"
+      MEILI_MASTER_KEY: ${MEILISEARCH_MASTER_KEY:-change_me}
+    volumes:
+      - meilisearch_data:/meili_data
+    ports:
+      - "127.0.0.1:7700:7700"
+    networks:
+      - pmtl-network
+    mem_limit: 1024m
+
+volumes:
+  postgres_data: {}
+  meilisearch_data: {}
 networks: { pmtl-network: { driver: bridge } }
